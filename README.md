@@ -1,6 +1,6 @@
 # Trident
 
-Windows installer for **Hermes**, **ZCode**, and **Google Antigravity**.
+Windows installer for **Hermes**, **ZCode**, **Google Antigravity**, and **Claude Code**.
 
 Official sources only. No mirrors, no bundled binaries.
 
@@ -23,8 +23,9 @@ Or download this repo and double-click `install.cmd`.
 | ZCode | [zai-org/ZCode](https://github.com/zai-org/ZCode) |
 | Antigravity | WinGet `Google.Antigravity` or [antigravity.google/download](https://antigravity.google/download) |
 | Antigravity CLI | WinGet `Google.AntigravityCLI` or the official CLI script |
+| Claude Code | WinGet `Anthropic.ClaudeCode` or [claude.ai/install.ps1](https://code.claude.com/docs/en/quickstart) |
 
-Architecture is detected automatically (`x64` or `ARM64`).
+Architecture is detected automatically (`x64` or `ARM64`). Git for Windows is installed if Claude Code is selected and Git is missing.
 
 ## Options
 
@@ -33,6 +34,7 @@ Architecture is detected automatically (`x64` or `ARM64`).
 .\install.ps1 -SkipHermesIde
 .\install.ps1 -SkipZCode
 .\install.ps1 -SkipAntigravity
+.\install.ps1 -SkipClaudeCode
 .\install.ps1 -DryRun
 ```
 
@@ -42,6 +44,7 @@ Open a **new** terminal:
 
 ```powershell
 hermes --version
+claude --version
 ```
 
 Then launch ZCode and Antigravity from the Start menu.
