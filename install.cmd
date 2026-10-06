@@ -1,9 +1,9 @@
 @echo off
 setlocal
-title Trident — Hermes · ZCode · Antigravity · Claude Code
+title Trident — selective agent setup
 echo.
 echo   TRIDENT
-echo   Hermes  ·  ZCode  ·  Antigravity  ·  Claude Code
+echo   Hermes  ·  ZCode  ·  Antigravity  ·  Claude  ·  ZeroClaw
 echo.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" %*
 set EXITCODE=%ERRORLEVEL%

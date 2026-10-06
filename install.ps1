@@ -1,31 +1,47 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Trident — install Hermes, ZCode, Antigravity, and Claude Code on Windows.
+  Trident — selective Windows installer for Hermes, ZCode, Antigravity, Claude Code, and ZeroClaw.
 
 .DESCRIPTION
-  Official Windows builds only:
-    - Hermes Agent   https://hermes-agent.nousresearch.com
-    - Hermes IDE     https://github.com/hermes-hq/hermes-ide
-    - ZCode          https://github.com/zai-org/ZCode
-    - Antigravity    https://antigravity.google
-    - Claude Code    https://code.claude.com/docs/en/quickstart
+  Downloads and installs official Windows builds only. Tick packages with -Only
+  (or $env:TRIDENT_ONLY). Unlisted packages are skipped.
+
+    hermes          Hermes Agent     https://hermes-agent.nousresearch.com
+    hermes-ide      Hermes IDE       https://github.com/hermes-hq/hermes-ide
+    zcode           ZCode            https://github.com/zai-org/ZCode
+    antigravity     Antigravity      https://antigravity.google
+    antigravity-cli Antigravity CLI
+    claude          Claude Code      https://claude.ai/install.ps1
+    zeroclaw        ZeroClaw         https://github.com/zeroclaw-labs/zeroclaw
 
 .EXAMPLE
   irm https://raw.githubusercontent.com/imanbarati/trident-windows/main/install.ps1 | iex
+
+.EXAMPLE
+  & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/imanbarati/trident-windows/main/install.ps1'))) -Only claude,zeroclaw
+
+.EXAMPLE
+  $env:TRIDENT_ONLY = 'hermes,zcode,zeroclaw'
+  irm https://raw.githubusercontent.com/imanbarati/trident-windows/main/install.ps1 | iex
+
+.EXAMPLE
+  .\install.ps1 -Only claude,zeroclaw -Arch x64
 #>
 [CmdletBinding()]
 param(
     [ValidateSet("auto", "x64", "arm64")]
     [string]$Arch = "auto",
+
+    [string[]]$Only = @(),
+
     [switch]$SkipHermesAgent,
     [switch]$SkipHermesIde,
     [switch]$SkipZCode,
     [switch]$SkipAntigravity,
     [switch]$SkipAntigravityCli,
-    [switch]$SkipAntigravityIde,
-    [switch]$SkipClaudeCode,
-    [switch]$SkipGit,
+    [switch]$SkipClaude,
+    [switch]$SkipZeroClaw,
     [switch]$DryRun
 )
 
@@ -37,16 +53,60 @@ $TridentVersion = "1.1.0"
 $WorkDir = Join-Path $env:TEMP "trident-windows"
 $Results = New-Object System.Collections.Generic.List[object]
 
+$CatalogIds = @(
+    "hermes-agent",
+    "hermes-ide",
+    "zcode",
+    "antigravity",
+    "antigravity-cli",
+    "claude",
+    "zeroclaw"
+)
+
+$AliasMap = @{
+    "hermes-agent"      = "hermes-agent"
+    "hermes"            = "hermes-agent"
+    "agent"             = "hermes-agent"
+    "hermes-ide"        = "hermes-ide"
+    "ide"               = "hermes-ide"
+    "zcode"             = "zcode"
+    "antigravity"       = "antigravity"
+    "agy"               = "antigravity"
+    "antigravity-cli"   = "antigravity-cli"
+    "agy-cli"           = "antigravity-cli"
+    "claude"            = "claude"
+    "claude-code"       = "claude"
+    "zeroclaw"          = "zeroclaw"
+    "claw"              = "zeroclaw"
+    "zero-claw"         = "zeroclaw"
+}
+
 function Write-Banner {
     Write-Host ""
     Write-Host "  TRIDENT  $TridentVersion" -ForegroundColor White
-    Write-Host "  Hermes  ·  ZCode  ·  Antigravity  ·  Claude Code" -ForegroundColor DarkGray
+    Write-Host "  Hermes  ·  ZCode  ·  Antigravity  ·  Claude  ·  ZeroClaw" -ForegroundColor DarkGray
     Write-Host ""
 }
-function Write-Step { param([string]$Message) Write-Host ("  ->  " + $Message) -ForegroundColor Gray }
-function Write-Ok { param([string]$Message) Write-Host ("  OK  " + $Message) -ForegroundColor Green }
-function Write-WarnLine { param([string]$Message) Write-Host ("  !   " + $Message) -ForegroundColor Yellow }
-function Write-Fail { param([string]$Message) Write-Host ("  X   " + $Message) -ForegroundColor Red }
+
+function Write-Step {
+    param([string]$Message)
+    Write-Host ("  →  " + $Message) -ForegroundColor Gray
+}
+
+function Write-Ok {
+    param([string]$Message)
+    Write-Host ("  ✓  " + $Message) -ForegroundColor Green
+}
+
+function Write-WarnLine {
+    param([string]$Message)
+    Write-Host ("  !  " + $Message) -ForegroundColor Yellow
+}
+
+function Write-Fail {
+    param([string]$Message)
+    Write-Host ("  ×  " + $Message) -ForegroundColor Red
+}
 
 function Add-Result {
     param(
@@ -76,7 +136,25 @@ function Test-AppCommand {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Test-Winget { return [bool](Get-Command winget -ErrorAction SilentlyContinue) }
+function Test-Winget {
+    return [bool](Get-Command winget -ErrorAction SilentlyContinue)
+}
+
+function Add-UserPath {
+    param([Parameter(Mandatory = $true)][string]$Directory)
+    if ($DryRun) { return }
+    $dir = $Directory.TrimEnd("\")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if (-not $userPath) { $userPath = "" }
+    $parts = @($userPath -split ";" | ForEach-Object { $_.TrimEnd("\") } | Where-Object { $_ })
+    if ($parts -notcontains $dir) {
+        $joined = if ($userPath) { "$dir;$userPath" } else { $dir }
+        [Environment]::SetEnvironmentVariable("Path", $joined, "User")
+    }
+    if (($env:Path -split ";" | ForEach-Object { $_.TrimEnd("\") }) -notcontains $dir) {
+        $env:Path = "$dir;$env:Path"
+    }
+}
 
 function Invoke-WingetInstall {
     param(
@@ -86,14 +164,16 @@ function Invoke-WingetInstall {
     if (-not (Test-Winget)) { return $false }
     Write-Step "winget install $Id"
     if ($DryRun) { return $true }
-    $wingetArgs = @(
+    $args = @(
         "install", "-e", "--id", $Id,
         "--accept-package-agreements",
         "--accept-source-agreements",
         "--disable-interactivity"
     )
-    $p = Start-Process -FilePath "winget" -ArgumentList $wingetArgs -Wait -PassThru -NoNewWindow
-    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) { return $true }
+    $p = Start-Process -FilePath "winget" -ArgumentList $args -Wait -PassThru -NoNewWindow
+    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
+        return $true
+    }
     Write-WarnLine "$DisplayName winget exit $($p.ExitCode) — trying next method"
     return $false
 }
@@ -133,7 +213,9 @@ function Save-Url {
     if ($DryRun) { return }
     $ProgressPreference = "SilentlyContinue"
     Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
-    if (-not (Test-Path $Destination)) { throw "Download failed: $Url" }
+    if (-not (Test-Path $Destination)) {
+        throw "Download failed: $Url"
+    }
 }
 
 function Invoke-SetupExe {
@@ -147,8 +229,56 @@ function Invoke-SetupExe {
     return $p.ExitCode
 }
 
+function Resolve-Wanted {
+    $tokens = New-Object System.Collections.Generic.List[string]
+    foreach ($item in @($Only)) {
+        if ($item) {
+            foreach ($piece in ($item -split "[,\s]+")) {
+                if ($piece) { $tokens.Add($piece.Trim()) | Out-Null }
+            }
+        }
+    }
+    if ($env:TRIDENT_ONLY) {
+        foreach ($piece in ($env:TRIDENT_ONLY -split "[,\s]+")) {
+            if ($piece) { $tokens.Add($piece.Trim()) | Out-Null }
+        }
+    }
+
+    $wanted = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    if ($tokens.Count -eq 0) {
+        foreach ($id in $CatalogIds) { [void]$wanted.Add($id) }
+    } else {
+        foreach ($token in $tokens) {
+            $key = $token.ToLowerInvariant()
+            if ($AliasMap.ContainsKey($key)) {
+                [void]$wanted.Add($AliasMap[$key])
+            } else {
+                Write-WarnLine "Unknown package '$token' — ignored"
+            }
+        }
+    }
+
+    if ($SkipHermesAgent) { [void]$wanted.Remove("hermes-agent") }
+    if ($SkipHermesIde) { [void]$wanted.Remove("hermes-ide") }
+    if ($SkipZCode) { [void]$wanted.Remove("zcode") }
+    if ($SkipAntigravity) { [void]$wanted.Remove("antigravity") }
+    if ($SkipAntigravityCli) { [void]$wanted.Remove("antigravity-cli") }
+    if ($SkipClaude) { [void]$wanted.Remove("claude") }
+    if ($SkipZeroClaw) { [void]$wanted.Remove("zeroclaw") }
+
+    return $wanted
+}
+
+function Test-Wanted {
+    param([string]$Id)
+    return $script:Wanted.Contains($Id)
+}
+
 function Install-HermesAgent {
-    if ($SkipHermesAgent) { Add-Result -Name "Hermes Agent" -Status "skipped" -Detail "flag"; return }
+    if (-not (Test-Wanted "hermes-agent")) {
+        Add-Result -Name "Hermes Agent" -Status "skipped" -Detail "not selected"
+        return
+    }
     if (Test-AppCommand "hermes") {
         Write-Ok "Hermes Agent already on PATH"
         Add-Result -Name "Hermes Agent" -Status "already" -Detail (Get-Command hermes).Source
@@ -158,7 +288,10 @@ function Install-HermesAgent {
     Write-Host "  HERMES AGENT" -ForegroundColor White
     try {
         Write-Step "Official installer  hermes-agent.nousresearch.com"
-        if ($DryRun) { Add-Result -Name "Hermes Agent" -Status "installed" -Detail "dry-run"; return }
+        if ($DryRun) {
+            Add-Result -Name "Hermes Agent" -Status "installed" -Detail "dry-run"
+            return
+        }
         $installer = Invoke-WebRequest -Uri "https://hermes-agent.nousresearch.com/install.ps1" -UseBasicParsing
         & ([scriptblock]::Create($installer.Content)) -NonInteractive
         if (Test-AppCommand "hermes") {
@@ -176,7 +309,10 @@ function Install-HermesAgent {
 
 function Install-HermesIde {
     param([string]$MachineArch)
-    if ($SkipHermesIde) { Add-Result -Name "Hermes IDE" -Status "skipped" -Detail "flag"; return }
+    if (-not (Test-Wanted "hermes-ide")) {
+        Add-Result -Name "Hermes IDE" -Status "skipped" -Detail "not selected"
+        return
+    }
     $existing = @(
         "$env:LOCALAPPDATA\HERMES IDE\HERMES IDE.exe",
         "$env:LOCALAPPDATA\Programs\HERMES IDE\HERMES IDE.exe",
@@ -220,7 +356,10 @@ function Install-HermesIde {
 
 function Install-ZCode {
     param([string]$MachineArch)
-    if ($SkipZCode) { Add-Result -Name "ZCode" -Status "skipped" -Detail "flag"; return }
+    if (-not (Test-Wanted "zcode")) {
+        Add-Result -Name "ZCode" -Status "skipped" -Detail "not selected"
+        return
+    }
     $existing = @(
         "$env:LOCALAPPDATA\Programs\ZCode\ZCode.exe",
         "${env:ProgramFiles}\ZCode\ZCode.exe",
@@ -260,7 +399,10 @@ function Install-ZCode {
 
 function Install-Antigravity {
     param([string]$MachineArch)
-    if ($SkipAntigravity) { Add-Result -Name "Antigravity" -Status "skipped" -Detail "flag"; return }
+    if (-not (Test-Wanted "antigravity")) {
+        Add-Result -Name "Antigravity" -Status "skipped" -Detail "not selected"
+        return
+    }
     Write-Host ""
     Write-Host "  ANTIGRAVITY" -ForegroundColor White
 
@@ -276,10 +418,10 @@ function Install-Antigravity {
             $exeName = if ($MachineArch -eq "arm64") { "Antigravity-arm64.exe" } else { "Antigravity-x64.exe" }
             $page = Invoke-WebRequest -Uri "https://antigravity.google/download" -UseBasicParsing
             $hrefs = @()
-            if ($page.Links) { $hrefs = @($page.Links | ForEach-Object { $_.href }) }
-            $match = $hrefs | Where-Object {
-                $_ -and ($_ -match [regex]::Escape($exeName) -or $_ -match "windows-$MachineArch" -or $_ -match "windows-x64")
-            } | Select-Object -First 1
+            if ($page.Links) {
+                $hrefs = @($page.Links | ForEach-Object { $_.href })
+            }
+            $match = $hrefs | Where-Object { $_ -and ($_ -match [regex]::Escape($exeName) -or $_ -match "windows-$MachineArch" -or $_ -match "windows-x64") } | Select-Object -First 1
             if ($match) {
                 if ($match -notmatch "^https?://") {
                     $match = [Uri]::new([Uri]"https://antigravity.google/download", $match).AbsoluteUri
@@ -287,11 +429,15 @@ function Install-Antigravity {
                 $out = Join-Path $WorkDir $exeName
                 Save-Url -Url $match -Destination $out
                 $code = Invoke-SetupExe -Path $out -Arguments @("/S")
-                if ($code -ne 0 -and -not $DryRun) { Start-Process -FilePath $out | Out-Null }
+                if ($code -ne 0 -and -not $DryRun) {
+                    Start-Process -FilePath $out | Out-Null
+                }
                 Add-Result -Name "Antigravity" -Status "installed" -Detail "direct download"
                 $desktopOk = $true
             }
-        } catch { Write-WarnLine $_.Exception.Message }
+        } catch {
+            Write-WarnLine $_.Exception.Message
+        }
     }
 
     if (-not $desktopOk) {
@@ -299,75 +445,81 @@ function Install-Antigravity {
         if (-not $DryRun) { Start-Process "https://antigravity.google/download" | Out-Null }
         Add-Result -Name "Antigravity" -Status "skipped" -Detail "opened antigravity.google/download"
     }
+}
 
-    if (-not $SkipAntigravityCli) {
-        if (Test-AppCommand "agy" -or Test-AppCommand "antigravity") {
-            Write-Ok "Antigravity CLI already on PATH"
-            Add-Result -Name "Antigravity CLI" -Status "already"
-        } elseif (Invoke-WingetInstall -Id "Google.AntigravityCLI" -DisplayName "Antigravity CLI") {
-            Write-Ok "Antigravity CLI via winget"
-            Add-Result -Name "Antigravity CLI" -Status "installed" -Detail "winget"
-        } else {
-            try {
-                Write-Step "Official CLI installer  antigravity.google/cli/install.ps1"
-                if (-not $DryRun) {
-                    $cli = Invoke-WebRequest -Uri "https://antigravity.google/cli/install.ps1" -UseBasicParsing
-                    Invoke-Expression $cli.Content
-                }
-                Add-Result -Name "Antigravity CLI" -Status "installed" -Detail "official script"
-                Write-Ok "Antigravity CLI"
-            } catch {
-                Write-Fail $_.Exception.Message
-                Add-Result -Name "Antigravity CLI" -Status "failed" -Detail $_.Exception.Message
-            }
-        }
+function Install-AntigravityCli {
+    if (-not (Test-Wanted "antigravity-cli")) {
+        Add-Result -Name "Antigravity CLI" -Status "skipped" -Detail "not selected"
+        return
     }
-
-    if (-not $SkipAntigravityIde) {
-        if (Invoke-WingetInstall -Id "Google.AntigravityIDE" -DisplayName "Antigravity IDE") {
-            Write-Ok "Antigravity IDE via winget"
-            Add-Result -Name "Antigravity IDE" -Status "installed" -Detail "winget"
-        } else {
-            Add-Result -Name "Antigravity IDE" -Status "skipped" -Detail "optional"
+    if (Test-AppCommand "agy" -or Test-AppCommand "antigravity") {
+        Write-Ok "Antigravity CLI already on PATH"
+        Add-Result -Name "Antigravity CLI" -Status "already"
+        return
+    }
+    Write-Host ""
+    Write-Host "  ANTIGRAVITY CLI" -ForegroundColor White
+    if (Invoke-WingetInstall -Id "Google.AntigravityCLI" -DisplayName "Antigravity CLI") {
+        Write-Ok "Antigravity CLI via winget"
+        Add-Result -Name "Antigravity CLI" -Status "installed" -Detail "winget"
+        return
+    }
+    try {
+        Write-Step "Official CLI installer  antigravity.google/cli/install.ps1"
+        if (-not $DryRun) {
+            $cli = Invoke-WebRequest -Uri "https://antigravity.google/cli/install.ps1" -UseBasicParsing
+            Invoke-Expression $cli.Content
         }
+        Add-Result -Name "Antigravity CLI" -Status "installed" -Detail "official script"
+        Write-Ok "Antigravity CLI"
+    } catch {
+        Write-Fail $_.Exception.Message
+        Add-Result -Name "Antigravity CLI" -Status "failed" -Detail $_.Exception.Message
+    }
+}
+
+function Install-GitIfNeeded {
+    if (Test-AppCommand "git") { return }
+    Write-Step "Git for Windows — used by Claude Code"
+    if (Invoke-WingetInstall -Id "Git.Git" -DisplayName "Git") {
+        Write-Ok "Git"
+        Add-Result -Name "Git" -Status "installed" -Detail "dependency for Claude Code"
+    } else {
+        Write-WarnLine "Git not installed — Claude Code will use PowerShell as its shell"
+        Add-Result -Name "Git" -Status "skipped" -Detail "optional for Claude Code"
     }
 }
 
 function Install-ClaudeCode {
-    if ($SkipClaudeCode) { Add-Result -Name "Claude Code" -Status "skipped" -Detail "flag"; return }
-
-    Write-Host ""
-    Write-Host "  CLAUDE CODE" -ForegroundColor White
-
-    if (-not $SkipGit -and -not (Test-AppCommand "git")) {
-        if (Invoke-WingetInstall -Id "Git.Git" -DisplayName "Git") {
-            Write-Ok "Git for Windows (needed by Claude Code)"
-            Add-Result -Name "Git" -Status "installed" -Detail "winget Git.Git"
-        } else {
-            Write-WarnLine "Git not installed. Claude Code will use PowerShell as its shell."
-            Add-Result -Name "Git" -Status "skipped" -Detail "winget unavailable"
-        }
-    } elseif (-not $SkipGit -and (Test-AppCommand "git")) {
-        Add-Result -Name "Git" -Status "already"
-    }
-
-    if (Test-AppCommand "claude") {
-        Write-Ok "Claude Code already on PATH"
-        Add-Result -Name "Claude Code" -Status "already" -Detail (Get-Command claude).Source
+    if (-not (Test-Wanted "claude")) {
+        Add-Result -Name "Claude Code" -Status "skipped" -Detail "not selected"
         return
     }
-
+    $claudeExe = Join-Path $env:USERPROFILE ".local\bin\claude.exe"
+    if ((Test-AppCommand "claude") -or (Test-Path $claudeExe)) {
+        Write-Ok "Claude Code already installed"
+        $detail = if (Test-AppCommand "claude") { (Get-Command claude).Source } else { $claudeExe }
+        Add-Result -Name "Claude Code" -Status "already" -Detail $detail
+        return
+    }
+    Write-Host ""
+    Write-Host "  CLAUDE CODE" -ForegroundColor White
     try {
+        Install-GitIfNeeded
         if (Invoke-WingetInstall -Id "Anthropic.ClaudeCode" -DisplayName "Claude Code") {
             Write-Ok "Claude Code via winget"
-            Add-Result -Name "Claude Code" -Status "installed" -Detail "winget Anthropic.ClaudeCode"
+            Add-Result -Name "Claude Code" -Status "installed" -Detail "winget"
             return
         }
         Write-Step "Official installer  claude.ai/install.ps1"
-        if ($DryRun) { Add-Result -Name "Claude Code" -Status "installed" -Detail "dry-run"; return }
+        if ($DryRun) {
+            Add-Result -Name "Claude Code" -Status "installed" -Detail "dry-run"
+            return
+        }
         $installer = Invoke-WebRequest -Uri "https://claude.ai/install.ps1" -UseBasicParsing
-        Invoke-Expression $installer.Content
-        if (Test-AppCommand "claude") {
+        & ([scriptblock]::Create($installer.Content))
+        Add-UserPath (Join-Path $env:USERPROFILE ".local\bin")
+        if ((Test-AppCommand "claude") -or (Test-Path $claudeExe)) {
             Write-Ok "Claude Code ready"
             Add-Result -Name "Claude Code" -Status "installed" -Detail "official installer"
         } else {
@@ -376,8 +528,47 @@ function Install-ClaudeCode {
         }
     } catch {
         Write-Fail $_.Exception.Message
-        Write-WarnLine "Manual: irm https://claude.ai/install.ps1 | iex"
         Add-Result -Name "Claude Code" -Status "failed" -Detail $_.Exception.Message
+    }
+}
+
+function Install-ZeroClaw {
+    param([string]$MachineArch)
+    if (-not (Test-Wanted "zeroclaw")) {
+        Add-Result -Name "ZeroClaw" -Status "skipped" -Detail "not selected"
+        return
+    }
+    $dst = Join-Path $env:USERPROFILE ".zeroclaw\bin"
+    $exe = Join-Path $dst "zeroclaw.exe"
+    if ((Test-AppCommand "zeroclaw") -or (Test-Path $exe)) {
+        Write-Ok "ZeroClaw already installed"
+        $detail = if (Test-Path $exe) { $exe } else { (Get-Command zeroclaw).Source }
+        Add-Result -Name "ZeroClaw" -Status "already" -Detail $detail
+        return
+    }
+    Write-Host ""
+    Write-Host "  ZEROCLAW" -ForegroundColor White
+    try {
+        $patterns = if ($MachineArch -eq "arm64") {
+            @("zeroclaw-aarch64-pc-windows-msvc.zip", "zeroclaw-x86_64-pc-windows-msvc.zip")
+        } else {
+            @("zeroclaw-x86_64-pc-windows-msvc.zip")
+        }
+        $asset = Get-GitHubLatestAsset -Owner "zeroclaw-labs" -Repo "zeroclaw" -NamePatterns $patterns
+        $zip = Join-Path $env:TEMP "zeroclaw.zip"
+        Save-Url -Url $asset.Url -Destination $zip
+        if (-not $DryRun) {
+            New-Item -ItemType Directory -Force -Path $dst | Out-Null
+            Expand-Archive -Force -Path $zip -DestinationPath $dst
+        }
+        Add-UserPath $dst
+        Write-Ok "ZeroClaw $($asset.Tag)"
+        Write-Step "Run 'zeroclaw quickstart' in a new terminal to pick a provider"
+        Add-Result -Name "ZeroClaw" -Status "installed" -Detail $asset.Tag
+    } catch {
+        Write-Fail $_.Exception.Message
+        Write-WarnLine "Manual install: https://github.com/zeroclaw-labs/zeroclaw"
+        Add-Result -Name "ZeroClaw" -Status "failed" -Detail $_.Exception.Message
     }
 }
 
@@ -387,10 +578,10 @@ function Write-Summary {
     Write-Host "  -------" -ForegroundColor DarkGray
     foreach ($row in $Results) {
         $mark = switch ($row.Status) {
-            "installed" { "OK" }
-            "already" { ".." }
-            "skipped" { "--" }
-            "failed" { "X " }
+            "installed" { "✓" }
+            "already" { "·" }
+            "skipped" { "–" }
+            "failed" { "×" }
         }
         $color = switch ($row.Status) {
             "installed" { "Green" }
@@ -404,16 +595,26 @@ function Write-Summary {
     }
     Write-Host ""
     Write-Host "  Open a new terminal, then:" -ForegroundColor Gray
-    Write-Host "    hermes --version" -ForegroundColor White
-    Write-Host "    claude --version" -ForegroundColor White
+    if (Test-Wanted "hermes-agent") { Write-Host "    hermes --version" -ForegroundColor White }
+    if (Test-Wanted "claude") { Write-Host "    claude --version" -ForegroundColor White }
+    if (Test-Wanted "zeroclaw") { Write-Host "    zeroclaw --version" -ForegroundColor White }
     Write-Host ""
 }
 
+# --- main ---
 Write-Banner
 $machineArch = Get-MachineArch
+$script:Wanted = Resolve-Wanted
 Write-Step "Windows $([Environment]::OSVersion.VersionString)"
 Write-Step "Architecture $machineArch"
+$selectedNames = @($CatalogIds | Where-Object { Test-Wanted $_ })
+Write-Step ("Selected  " + ($(if ($selectedNames) { $selectedNames -join ", " } else { "(none)" })))
 if ($DryRun) { Write-WarnLine "Dry run — no installers will execute" }
+
+if ($script:Wanted.Count -eq 0) {
+    Write-Fail "Nothing selected. Pass -Only hermes,zcode,claude,zeroclaw (or omit -Only to install all)."
+    exit 1
+}
 
 New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
 
@@ -421,7 +622,9 @@ Install-HermesAgent
 Install-HermesIde -MachineArch $machineArch
 Install-ZCode -MachineArch $machineArch
 Install-Antigravity -MachineArch $machineArch
+Install-AntigravityCli
 Install-ClaudeCode
+Install-ZeroClaw -MachineArch $machineArch
 
 Write-Summary
 
