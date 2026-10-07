@@ -137,7 +137,7 @@ if [[ -n "${ONLY_RAW}" ]]; then
 else
   WANT[hermes]=1
   WANT[zeroclaw]=1
-done
+fi
 
 if [[ ${#WANT[@]} -eq 0 ]]; then
   echo "Nothing to install. Pass --only hermes,zeroclaw,claude" >&2
