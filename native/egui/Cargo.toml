@@ -1,0 +1,23 @@
+[package]
+name = "trident-gui"
+version = "1.2.0"
+edition = "2021"
+license = "MIT"
+description = "Trident native setup GUI (eframe / egui) for Windows and Android"
+repository = "https://github.com/imanbarati/trident-windows"
+publish = false
+
+[dependencies]
+eframe = "0.32"
+egui = "0.32"
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
+
+[lib]
+name = "trident_gui"
+crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "trident-gui"
+path = "src/main.rs"
