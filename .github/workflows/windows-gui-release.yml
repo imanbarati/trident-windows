@@ -8,6 +8,8 @@ on:
       - ".github/workflows/windows-gui-release.yml"
       - "install.ps1"
       - "install.cmd"
+    tags:
+      - "v*"
 
 permissions:
   contents: write
