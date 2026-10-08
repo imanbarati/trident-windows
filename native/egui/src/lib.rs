@@ -178,11 +178,12 @@ impl eframe::App for TridentApp {
                     {
                         if let Some(app) = self.android_app.clone() {
                             let text = cmd.clone();
+                            let java_app = app.clone();
                             app.run_on_java_main_thread(Box::new(move || {
                                 let result = (|| -> jni::errors::Result<()> {
-                                    let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) };
+                                    let vm = unsafe { jni::JavaVM::from_raw(java_app.vm_as_ptr().cast()) };
                                     vm.attach_current_thread(|env| {
-                                        let raw_activity = app.activity_as_ptr() as jni::sys::jobject;
+                                        let raw_activity = java_app.activity_as_ptr() as jni::sys::jobject;
                                         let activity_global = unsafe {
                                             env.as_cast_raw::<jni::refs::Global<JObject>>(&raw_activity)?
                                         };
