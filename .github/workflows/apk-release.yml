@@ -159,14 +159,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          mapfile -t apks < <(find native/egui/target -type f -name '*.apk' | sort)
-          printf 'found:\n' 
-          printf '  %s\n' "${apks[@]:-}"
-          if [[ ${#apks[@]} -eq 0 ]]; then
-            echo "cargo-apk produced no APK" >&2
-            exit 1
-          fi
-          cp "${apks[0]}" dist/trident-arm64.apk
+          apk="native/egui/target/release/apk/trident.apk"
+          unaligned="native/egui/target/release/apk/trident-unaligned.apk"
+          printf 'aligned APK: %s\n' "$apk"
+          printf 'unaligned APK: %s\n' "$unaligned"
+          test -f "$apk"
+          test -s "$apk"
+          cp "$apk" dist/trident-arm64.apk
+          test -s dist/trident-arm64.apk
           echo "file=dist/trident-arm64.apk" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
