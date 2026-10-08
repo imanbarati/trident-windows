@@ -26,7 +26,7 @@ Local build (Android SDK + NDK):
 ```sh
 rustup target add aarch64-linux-android
 cargo install cargo-apk --locked --version 0.10.0
-cargo apk build --release
+cargo apk build --release --lib
 ```
 
 The APK is written under `target/release/apk/`. See egui’s `examples/hello_android` if `android_app` on `NativeOptions` moves between eframe versions.

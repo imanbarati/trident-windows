@@ -112,7 +112,7 @@ jobs:
             export CARGO_APK_RELEASE_KEYSTORE="${KEYSTORE_PATH}"
             export CARGO_APK_RELEASE_KEYSTORE_PASSWORD="${KEYSTORE_PASS}"
           fi
-          cargo apk build --release
+          cargo apk build --release --lib
 
       - name: Stage APK
         id: apk
