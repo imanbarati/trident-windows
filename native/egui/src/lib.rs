@@ -1,5 +1,10 @@
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
+#[cfg(target_os = "android")]
+use jni::{objects::{JObject, JString}, JValue};
+#[cfg(target_os = "android")]
+use winit::platform::android::activity::AndroidApp;
+
 const RAW_PS1: &str = "https://raw.githubusercontent.com/imanbarati/trident-windows/main/install.ps1";
 const RAW_SH: &str = "https://raw.githubusercontent.com/imanbarati/trident-windows/main/install.sh";
 
@@ -23,6 +28,8 @@ pub struct TridentApp {
     platform: Platform,
     packages: Vec<Pkg>,
     status: String,
+    #[cfg(target_os = "android")]
+    android_app: Option<AndroidApp>,
 }
 
 impl Default for TridentApp {
@@ -34,6 +41,8 @@ impl Default for TridentApp {
                 Platform::Windows
             },
             status: String::new(),
+            #[cfg(target_os = "android")]
+            android_app: None,
             packages: vec![
                 Pkg { flag: "hermes", name: "Hermes Agent", maker: "Nous Research", windows: true, android: true, win_on: true, droid_on: true },
                 Pkg { flag: "hermes-ide", name: "Hermes IDE", maker: "hermes-hq", windows: true, android: false, win_on: true, droid_on: false },
@@ -165,8 +174,57 @@ impl eframe::App for TridentApp {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button(RichText::new("Copy command").color(bg)).clicked() {
-                    ui.ctx().copy_text(cmd.clone());
-                    self.status = "Copied.".into();
+                    #[cfg(target_os = "android")]
+                    {
+                        if let Some(app) = self.android_app.clone() {
+                            let text = cmd.clone();
+                            app.run_on_java_main_thread(Box::new(move || {
+                                let result = (|| -> jni::errors::Result<()> {
+                                    let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) };
+                                    vm.attach_current_thread(|env| {
+                                        let raw_activity = app.activity_as_ptr() as jni::sys::jobject;
+                                        let activity_global = unsafe {
+                                            env.as_cast_raw::<jni::refs::Global<JObject>>(&raw_activity)?
+                                        };
+                                        let activity = env.new_local_ref(&*activity_global)?;
+                                        let service_name = JString::from_str(env, "clipboard")?;
+                                        let clipboard = env.call_method(
+                                            &activity,
+                                            "getSystemService",
+                                            "(Ljava/lang/String;)Ljava/lang/Object;",
+                                            &[JValue::Object(&service_name)],
+                                        )?.l()?;
+                                        let label = JString::from_str(env, "Trident")?;
+                                        let clip_text = JString::from_str(env, &text)?;
+                                        let clip = env.call_static_method(
+                                            "android/content/ClipData",
+                                            "newPlainText",
+                                            "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;",
+                                            &[JValue::Object(&label), JValue::Object(&clip_text)],
+                                        )?.l()?;
+                                        env.call_method(
+                                            &clipboard,
+                                            "setPrimaryClip",
+                                            "(Landroid/content/ClipData;)V",
+                                            &[JValue::Object(&clip)],
+                                        )?;
+                                        Ok(())
+                                    })
+                                })();
+                                if let Err(err) = result {
+                                    eprintln!("Android clipboard error: {err:?}");
+                                }
+                            }));
+                            self.status = "Copied to Android clipboard.".into();
+                        } else {
+                            self.status = "Android clipboard is not ready.".into();
+                        }
+                    }
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        ui.ctx().copy_text(cmd.clone());
+                        self.status = "Copied.".into();
+                    }
                 }
                 if ui
                     .add_sized(Vec2::new(140.0, 28.0), egui::Button::new("Install"))
@@ -209,7 +267,11 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
     let _ = eframe::run_native(
         "Trident Setup",
         options,
-        Box::new(|_cc| Ok(Box::new(TridentApp::default()))),
+        Box::new(move |_cc| {
+            let mut state = TridentApp::default();
+            state.android_app = Some(app.clone());
+            Ok(Box::new(state))
+        }),
     );
 }
 
