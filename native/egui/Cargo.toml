@@ -8,7 +8,11 @@ repository = "https://github.com/imanbarati/trident-windows"
 publish = false
 
 [dependencies]
-eframe = "0.32"
+eframe = { version = "0.32", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "android-native-activity",
+] }
 egui = "0.32"
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -16,8 +20,19 @@ winit = { version = "0.30", default-features = false, features = ["android-nativ
 
 [lib]
 name = "trident_gui"
-crate-type = ["lib", "cdylib"]
+crate-type = ["cdylib", "lib"]
 
 [[bin]]
 name = "trident-gui"
 path = "src/main.rs"
+
+# cargo-apk reads this. arm64 only — that is the phone ABI install.sh supports.
+[package.metadata.android]
+package = "app.trident.setup"
+apk_name = "trident"
+build_targets = ["aarch64-linux-android"]
+strip = "strip"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 35

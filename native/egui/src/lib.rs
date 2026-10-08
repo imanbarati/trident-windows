@@ -28,7 +28,11 @@ pub struct TridentApp {
 impl Default for TridentApp {
     fn default() -> Self {
         Self {
-            platform: Platform::Windows,
+            platform: if cfg!(target_os = "android") {
+                Platform::Android
+            } else {
+                Platform::Windows
+            },
             status: String::new(),
             packages: vec![
                 Pkg { flag: "hermes", name: "Hermes Agent", maker: "Nous Research", windows: true, android: true, win_on: true, droid_on: true },
@@ -195,3 +199,17 @@ pub fn run() -> eframe::Result {
         Box::new(|_cc| Ok(Box::new(TridentApp::default()))),
     )
 }
+
+/// cargo-apk packages the cdylib, so the Android entry has to live in this crate.
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app: winit::platform::android::activity::AndroidApp) {
+    let mut options = native_options();
+    options.android_app = Some(app);
+    let _ = eframe::run_native(
+        "Trident Setup",
+        options,
+        Box::new(|_cc| Ok(Box::new(TridentApp::default()))),
+    );
+}
+

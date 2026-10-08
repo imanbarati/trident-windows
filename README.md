@@ -67,6 +67,14 @@ cargo run --release
 
 Windows: Install launches the PowerShell one-liner. Android: the GUI copies the Termux command (an APK cannot install Termux packages). See `native/egui/README.md`.
 
+### APK release
+
+Actions → **Android APK release**, or push a `v*` / `apk-v*` tag. The workflow builds `trident-arm64.apk` with cargo-apk and attaches it to a GitHub Release.
+
+https://github.com/imanbarati/trident-windows/releases
+
+Optional signing secrets: `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`. If they are unset, the APK is debug-signed for sideload.
+
 ### Package flags
 
 | Flag | Package | Windows | Android |
