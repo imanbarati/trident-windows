@@ -79,16 +79,27 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           if [[ -n "${KEYSTORE_B64}" && -n "${KEYSTORE_PASS}" ]]; then
             echo "${KEYSTORE_B64}" | base64 -d > "${RUNNER_TEMP}/trident.keystore"
+            alias="${KEYSTORE_ALIAS}"
+            if [[ -z "${alias}" ]]; then
+              alias="$(keytool -list -v -keystore "${RUNNER_TEMP}/trident.keystore" -storepass "${KEYSTORE_PASS}" 2>/dev/null | sed -n 's/^Alias name: //p' | head -1)"
+            fi
+            if [[ -z "${alias}" ]]; then
+              echo "Could not determine the keystore alias. Set ANDROID_KEYSTORE_ALIAS." >&2
+              exit 1
+            fi
+            keypass="${KEY_PASSWORD:-${KEYSTORE_PASS}}"
             echo "path=${RUNNER_TEMP}/trident.keystore" >> "$GITHUB_OUTPUT"
             echo "password=${KEYSTORE_PASS}" >> "$GITHUB_OUTPUT"
-            echo "Release keystore from ANDROID_KEYSTORE_BASE64."
+            echo "alias=${alias}" >> "$GITHUB_OUTPUT"
+            echo "key_password=${keypass}" >> "$GITHUB_OUTPUT"
+            echo "Release keystore loaded."
           else
-            # cargo-apk refuses to release-sign without a keystore. This is the
-            # standard Android debug identity (alias androiddebugkey / password android).
             keytool -genkeypair -v \
               -keystore "${RUNNER_TEMP}/trident-debug.keystore" \
               -storepass android \
@@ -98,7 +109,9 @@ jobs:
               -dname "CN=Trident CI, OU=Trident, O=Trident, L=NA, ST=NA, C=US"
             echo "path=${RUNNER_TEMP}/trident-debug.keystore" >> "$GITHUB_OUTPUT"
             echo "password=android" >> "$GITHUB_OUTPUT"
-            echo "No ANDROID_KEYSTORE_* secrets — debug-signing the release APK."
+            echo "alias=androiddebugkey" >> "$GITHUB_OUTPUT"
+            echo "key_password=android" >> "$GITHUB_OUTPUT"
+            echo "No Android keystore secrets — using a fresh debug signing key."
           fi
 
       - name: Build release APK
@@ -108,11 +121,38 @@ jobs:
           KEYSTORE_PASS: ${{ steps.keystore.outputs.password }}
         run: |
           set -euo pipefail
-          if [[ -n "${KEYSTORE_PATH}" ]]; then
-            export CARGO_APK_RELEASE_KEYSTORE="${KEYSTORE_PATH}"
-            export CARGO_APK_RELEASE_KEYSTORE_PASSWORD="${KEYSTORE_PASS}"
-          fi
+          export CARGO_APK_RELEASE_KEYSTORE="${KEYSTORE_PATH}"
+          export CARGO_APK_RELEASE_KEYSTORE_PASSWORD="${KEYSTORE_PASS}"
           cargo apk build --release --lib
+
+      - name: Align, sign and verify APK
+        working-directory: native/egui
+        env:
+          KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          KEYSTORE_PASS: ${{ steps.keystore.outputs.password }}
+          KEY_ALIAS: ${{ steps.keystore.outputs.alias }}
+          KEY_PASSWORD: ${{ steps.keystore.outputs.key_password }}
+        run: |
+          set -euo pipefail
+          apk="target/release/apk/trident.apk"
+          aligned="${RUNNER_TEMP}/trident-aligned.apk"
+          apksigner="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          zipalign="${ANDROID_HOME}/build-tools/35.0.0/zipalign"
+          test -f "${apk}"
+          test -x "${apksigner}"
+          test -x "${zipalign}"
+          "${zipalign}" -P 16 -f 4 "${apk}" "${aligned}"
+          mv "${aligned}" "${apk}"
+          "${apksigner}" sign \
+            --ks "${KEYSTORE_PATH}" \
+            --ks-pass "pass:${KEYSTORE_PASS}" \
+            --ks-key-alias "${KEY_ALIAS}" \
+            --key-pass "pass:${KEY_PASSWORD}" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            "${apk}"
+          "${apksigner}" verify --verbose --print-certs "${apk}"
 
       - name: Stage APK
         id: apk
