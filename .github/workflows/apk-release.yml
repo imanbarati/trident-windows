@@ -74,7 +74,7 @@ jobs:
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked --version 0.10.0
 
-      - name: Optional release keystore
+      - name: Release keystore
         id: keystore
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -84,17 +84,28 @@ jobs:
           if [[ -n "${KEYSTORE_B64}" && -n "${KEYSTORE_PASS}" ]]; then
             echo "${KEYSTORE_B64}" | base64 -d > "${RUNNER_TEMP}/trident.keystore"
             echo "path=${RUNNER_TEMP}/trident.keystore" >> "$GITHUB_OUTPUT"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "password=${KEYSTORE_PASS}" >> "$GITHUB_OUTPUT"
+            echo "Release keystore from ANDROID_KEYSTORE_BASE64."
           else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "No ANDROID_KEYSTORE_* secrets — cargo-apk will debug-sign the APK."
+            # cargo-apk refuses to release-sign without a keystore. This is the
+            # standard Android debug identity (alias androiddebugkey / password android).
+            keytool -genkeypair -v \
+              -keystore "${RUNNER_TEMP}/trident-debug.keystore" \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Trident CI, OU=Trident, O=Trident, L=NA, ST=NA, C=US"
+            echo "path=${RUNNER_TEMP}/trident-debug.keystore" >> "$GITHUB_OUTPUT"
+            echo "password=android" >> "$GITHUB_OUTPUT"
+            echo "No ANDROID_KEYSTORE_* secrets — debug-signing the release APK."
           fi
 
       - name: Build release APK
         working-directory: native/egui
         env:
           KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
-          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_PASS: ${{ steps.keystore.outputs.password }}
         run: |
           set -euo pipefail
           if [[ -n "${KEYSTORE_PATH}" ]]; then
