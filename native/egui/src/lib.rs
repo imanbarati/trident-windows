@@ -1,7 +1,7 @@
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 
 #[cfg(target_os = "android")]
-use jni::{objects::{JObject, JString}, JValue};
+use jni::{jni_sig, jni_str, objects::{JObject, JString}, JValue};
 #[cfg(target_os = "android")]
 use winit::platform::android::activity::AndroidApp;
 
@@ -263,7 +263,7 @@ pub fn run() -> eframe::Result {
 #[no_mangle]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
     let mut options = native_options();
-    options.android_app = Some(app);
+    options.android_app = Some(app.clone());
     let _ = eframe::run_native(
         "Trident Setup",
         options,
