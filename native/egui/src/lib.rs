@@ -190,22 +190,22 @@ impl eframe::App for TridentApp {
                                         let service_name = JString::from_str(env, "clipboard")?;
                                         let clipboard = env.call_method(
                                             &activity,
-                                            "getSystemService",
-                                            "(Ljava/lang/String;)Ljava/lang/Object;",
+                                            jni_str!("getSystemService"),
+                                            jni_sig!("(Ljava/lang/String;)Ljava/lang/Object;"),
                                             &[JValue::Object(&service_name)],
                                         )?.l()?;
                                         let label = JString::from_str(env, "Trident")?;
                                         let clip_text = JString::from_str(env, &text)?;
                                         let clip = env.call_static_method(
-                                            "android/content/ClipData",
-                                            "newPlainText",
-                                            "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;",
+                                            jni_str!("android/content/ClipData"),
+                                            jni_str!("newPlainText"),
+                                            jni_sig!("(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Landroid/content/ClipData;"),
                                             &[JValue::Object(&label), JValue::Object(&clip_text)],
                                         )?.l()?;
                                         env.call_method(
                                             &clipboard,
-                                            "setPrimaryClip",
-                                            "(Landroid/content/ClipData;)V",
+                                            jni_str!("setPrimaryClip"),
+                                            jni_sig!("(Landroid/content/ClipData;)V"),
                                             &[JValue::Object(&clip)],
                                         )?;
                                         Ok(())
