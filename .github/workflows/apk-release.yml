@@ -166,7 +166,7 @@ jobs:
           if [[ -n "${INPUT_TAG}" ]]; then
             name="${INPUT_TAG}"
           else
-            name="build-${GITHUB_RUN_NUMBER}"
+            name="android-build-${GITHUB_RUN_NUMBER}"
           fi
           echo "name=${name}" >> "$GITHUB_OUTPUT"
 
