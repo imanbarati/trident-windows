@@ -4,13 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (default apk-v<Cargo.toml version>)"
+        description: "Release tag (optional; auto-generates a build tag when omitted)"
         required: false
         type: string
   push:
-    tags:
-      - "v*"
-      - "apk-v*"
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -98,20 +97,16 @@ jobs:
             echo "password=${KEYSTORE_PASS}" >> "$GITHUB_OUTPUT"
             echo "alias=${alias}" >> "$GITHUB_OUTPUT"
             echo "key_password=${keypass}" >> "$GITHUB_OUTPUT"
-            echo "Release keystore loaded."
           else
             keytool -genkeypair -v \
               -keystore "${RUNNER_TEMP}/trident-debug.keystore" \
-              -storepass android \
-              -keypass android \
-              -alias androiddebugkey \
+              -storepass android -keypass android -alias androiddebugkey \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Trident CI, OU=Trident, O=Trident, L=NA, ST=NA, C=US"
             echo "path=${RUNNER_TEMP}/trident-debug.keystore" >> "$GITHUB_OUTPUT"
             echo "password=android" >> "$GITHUB_OUTPUT"
             echo "alias=androiddebugkey" >> "$GITHUB_OUTPUT"
             echo "key_password=android" >> "$GITHUB_OUTPUT"
-            echo "No Android keystore secrets — using a fresh debug signing key."
           fi
 
       - name: Build release APK
@@ -139,35 +134,21 @@ jobs:
           apksigner="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
           zipalign="${ANDROID_HOME}/build-tools/35.0.0/zipalign"
           test -f "${apk}"
-          test -x "${apksigner}"
-          test -x "${zipalign}"
           "${zipalign}" -P 16 -f 4 "${apk}" "${aligned}"
           mv "${aligned}" "${apk}"
-          "${apksigner}" sign \
-            --ks "${KEYSTORE_PATH}" \
-            --ks-pass "pass:${KEYSTORE_PASS}" \
-            --ks-key-alias "${KEY_ALIAS}" \
-            --key-pass "pass:${KEY_PASSWORD}" \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --v3-signing-enabled true \
-            "${apk}"
+          "${apksigner}" sign --ks "${KEYSTORE_PATH}" --ks-pass "pass:${KEYSTORE_PASS}" \
+            --ks-key-alias "${KEY_ALIAS}" --key-pass "pass:${KEY_PASSWORD}" \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true "${apk}"
           "${apksigner}" verify --verbose --print-certs "${apk}"
 
       - name: Stage APK
-        id: apk
         run: |
           set -euo pipefail
           mkdir -p dist
           apk="native/egui/target/release/apk/trident.apk"
-          unaligned="native/egui/target/release/apk/trident-unaligned.apk"
-          printf 'aligned APK: %s\n' "$apk"
-          printf 'unaligned APK: %s\n' "$unaligned"
-          test -f "$apk"
-          test -s "$apk"
-          cp "$apk" dist/trident-arm64.apk
+          test -s "${apk}"
+          cp "${apk}" dist/trident-arm64.apk
           test -s dist/trident-arm64.apk
-          echo "file=dist/trident-arm64.apk" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -182,13 +163,10 @@ jobs:
           INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            name="${GITHUB_REF#refs/tags/}"
-          elif [[ -n "${INPUT_TAG}" ]]; then
+          if [[ -n "${INPUT_TAG}" ]]; then
             name="${INPUT_TAG}"
           else
-            ver="$(sed -n 's/^version = "\(.*\)"/\1/p' native/egui/Cargo.toml | head -1)"
-            name="apk-v${ver}"
+            name="build-${GITHUB_RUN_NUMBER}"
           fi
           echo "name=${name}" >> "$GITHUB_OUTPUT"
 
@@ -203,10 +181,9 @@ jobs:
           body: |
             Native Trident picker for Android (arm64-v8a).
 
-            This APK does not install agents. It shows the Termux command. Install Termux from F-Droid, then paste that command.
+            This APK shows the Termux command and does not install agents itself.
+            Sideload the APK, open it, then use the Copy command button to copy into Termux.
 
-            Sideload `trident-arm64.apk`. Android will ask you to allow installs from the browser.
-
-            Without `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` secrets, the APK is debug-signed. That is enough to sideload. It is not a Play Store signature.
+            Without Android release-keystore secrets, CI uses a fresh debug signing key suitable for sideloading.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
